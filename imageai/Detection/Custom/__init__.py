@@ -79,6 +79,7 @@ class DetectionModelTrainer:
         :return:
         """
         self.__model_type = "yolov3"
+        print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
 
     def setDataDirectory(self, data_directory):
 
