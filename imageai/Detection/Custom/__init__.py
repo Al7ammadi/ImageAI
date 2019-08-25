@@ -80,7 +80,7 @@ class DetectionModelTrainer:
         :return:
         """
         self.__model_type = "yolov3"
-        print('customized with bar,accuracy,early_stop')
+        print('Customized ImageAI Library')
         
 
     def setDataDirectory(self, data_directory):
