@@ -17,6 +17,7 @@ from keras.preprocessing.image import load_img, img_to_array
 from keras.models import load_model, Input
 from PIL import Image
 import matplotlib.image as pltimage
+from matplotlib import pyplot as plt
 import cv2
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -79,7 +80,8 @@ class DetectionModelTrainer:
         :return:
         """
         self.__model_type = "yolov3"
-        print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+        print('customized with bar,accuracy,early_stop')
+        
 
     def setDataDirectory(self, data_directory):
 
@@ -139,7 +141,7 @@ class DetectionModelTrainer:
 
 
 
-    def setTrainConfig(self,  object_names_array, batch_size= 4, num_experiments=100, train_from_pretrained_model=""):
+    def setTrainConfig(self,  object_names_array, batch_size= 4, num_experiments=100, train_from_pretrained_model="",patience=100,min_delta=0.01):
 
         """
 
@@ -161,10 +163,10 @@ class DetectionModelTrainer:
         self.__model_anchors, self.__reversed_model_anchors = generateAnchors(self.__train_annotations_folder,
                                                                           self.__train_images_folder,
                                                                           self.__train_cache_file, self.__model_labels)
-
+        self.__patience = patience
+        self.__min_delta=min_delta
         self.__model_labels = sorted(object_names_array)
         self.__num_objects = len(object_names_array)
-
         self.__train_batch_size = batch_size
         self.__train_epochs = num_experiments
         self.__pre_trained_model = train_from_pretrained_model
@@ -276,17 +278,40 @@ class DetectionModelTrainer:
         callbacks = self._create_callbacks(self.__train_weights_name, infer_model)
 
 
-        train_model.fit_generator(
+        history=train_model.fit_generator(
             generator=train_generator,
             steps_per_epoch=len(train_generator) * self.__train_times,
             validation_data=valid_generator,
             validation_steps=len(valid_generator) * self.__train_times,
             epochs=self.__train_epochs + self.__train_warmup_epochs,
-            verbose=2,
+            verbose=1,
             callbacks=callbacks,
             workers=4,
             max_queue_size=8
         )
+        #history.history.keys()
+        #print(history.history.keys())
+
+        # Plot training & validation loss values
+        plt.plot(history.history['loss'])
+        plt.plot(history.history['val_loss'])
+        plt.title('Model loss')
+        plt.ylabel('Loss')
+        plt.xlabel('Epoch')
+        plt.legend(['Train_loss', 'Validation_loss'], loc='upper left')
+        plt.show() 
+        
+
+        
+        plt.plot(history.history['yolo_layer_1_acc'])
+        plt.plot(history.history['val_yolo_layer_1_acc'])
+        plt.title('Model accuracy')
+        plt.ylabel('Accuracy')
+        plt.xlabel('Epoch')
+        plt.legend(['Train_accuracy', 'Validation_accuracy'], loc='upper left')
+        plt.show()
+        
+
 
 
     def evaluateModel(self, model_path, json_path, batch_size=4, iou_threshold=0.5, object_threshold=0.2, nms_threshold=0.45):
@@ -511,7 +536,7 @@ class DetectionModelTrainer:
         )
         reduce_on_plateau = ReduceLROnPlateau(
             monitor='loss',
-            factor=0.1,
+            factor=0.2,
             patience=2,
             verbose=0,
             mode='min',
@@ -519,8 +544,19 @@ class DetectionModelTrainer:
             cooldown=0,
             min_lr=0
         )
+        early_stop = EarlyStopping(
+                monitor='val_loss', 
+                min_delta=self.__min_delta, 
+                patience=self.__patience, 
+                verbose=1, 
+                mode='min', 
+                baseline=None, 
+                restore_best_weights=False
+                )
+ 
+        
 
-        return [checkpoint, reduce_on_plateau]
+        return [checkpoint, reduce_on_plateau,early_stop]
 
     def _create_model(
             self,
@@ -588,7 +624,7 @@ class DetectionModelTrainer:
             train_model = template_model
 
         optimizer = Adam(lr=lr, clipnorm=0.001)
-        train_model.compile(loss=dummy_loss, optimizer=optimizer)
+        train_model.compile(loss=dummy_loss, optimizer=optimizer,metrics=['accuracy'])
 
         return train_model, infer_model
 
@@ -669,7 +705,7 @@ class CustomObjectDetection:
 
 
     def detectObjectsFromImage(self, input_image="", output_image_path="", input_type="file", output_type="file",
-                               extract_detected_objects=False, minimum_percentage_probability=30, nms_treshold=0.4,
+                               extract_detected_objects=False, minimum_percentage_probability=40, nms_treshold=0.4,
                                display_percentage_probability=True, display_object_name=True):
 
         """
@@ -777,6 +813,7 @@ class CustomObjectDetection:
 
             if(self.__model_type == "yolov3"):
                 yolo_result = model.predict(image)
+                
 
                 boxes = list()
 
@@ -793,12 +830,12 @@ class CustomObjectDetection:
 
                 all_boxes, all_labels, all_scores = self.__detection_utils.get_boxes(boxes, self.__model_labels,
                                                                                      self.__object_threshold)
-
+                count = 0
                 for object_box, object_label, object_score in zip(all_boxes, all_labels, all_scores):
                     each_object_details = {}
                     each_object_details["name"] = object_label
                     each_object_details["percentage_probability"] = object_score
-
+                    count += 1
                     if(object_box.xmin < 0):
                         object_box.xmin = 0
                     if (object_box.ymin < 0):
@@ -810,7 +847,8 @@ class CustomObjectDetection:
                 image_frame = self.__detection_utils.draw_boxes_and_caption(image_frame, all_boxes, all_labels,
                                                                             all_scores, show_names=display_object_name,
                                                                             show_percentage=display_percentage_probability)
-
+                y_pred=count
+                print('The number of detected airplanes=',count)
                 if (extract_detected_objects == True):
                     counting = 0
 
@@ -832,7 +870,9 @@ class CustomObjectDetection:
 
                 if (output_type == "file"):
                     cv2.imwrite(output_image_path, image_frame)
-
+                    plt.imshow(image_frame)
+                    plt.show()
+                    return y_pred
                 if (extract_detected_objects == True):
                     if (output_type == "file"):
                         return output_objects_array, detected_objects_image_array
